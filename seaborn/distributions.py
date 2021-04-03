@@ -57,8 +57,10 @@ multiple : {{"layer", "stack", "fill"}}
     """,
     log_scale="""
 log_scale : bool or number, or pair of bools or numbers
-    Set a log scale on the data axis (or axes, with bivariate data) with the
-    given base (default 10), and evaluate the KDE in log space.
+    Set axis scale(s) to log. A single value sets the data axis for univariate
+    distributions and both axes for bivariate distributions. A pair of values
+    sets each axis independently. Numeric values are interpreted as the desired
+    base (default 10). If `False`, defer to the existing Axes scale.
     """,
     legend="""
 legend : bool
@@ -642,15 +644,18 @@ class _DistributionPlotter(VectorPlotter):
                 ax.autoscale_view()
 
                 # We will base everything on the minimum bin width
-                hist_metadata = [h.index.to_frame() for _, h in histograms.items()]
-                binwidth = min([
-                    h["widths"].min() for h in hist_metadata
-                ])
+                hist_metadata = pd.concat([
+                    # Use .items for generality over dict or df
+                    h.index.to_frame() for _, h in histograms.items()
+                ]).reset_index(drop=True)
+                thin_bar_idx = hist_metadata["widths"].idxmin()
+                binwidth = hist_metadata.loc[thin_bar_idx, "widths"]
+                left_edge = hist_metadata.loc[thin_bar_idx, "edges"]
 
                 # Convert binwidth from data coordinates to pixels
-                pts_x, pts_y = 72 / ax.figure.dpi * (
-                    ax.transData.transform([binwidth, binwidth])
-                    - ax.transData.transform([0, 0])
+                pts_x, pts_y = 72 / ax.figure.dpi * abs(
+                    ax.transData.transform([left_edge + binwidth] * 2)
+                    - ax.transData.transform([left_edge] * 2)
                 )
                 if self.data_variable == "x":
                     binwidth_points = pts_x
@@ -1201,6 +1206,12 @@ class _DistributionPlotter(VectorPlotter):
             if "hue" in self.variables:
                 artist_kws["color"] = self._hue_map(sub_vars["hue"])
 
+            # Return the data variable to the linear domain
+            # This needs an automatic solution; see GH2409
+            if self._log_scaled(self.data_variable):
+                vals = np.power(10, vals)
+                vals[0] = -np.inf
+
             # Work out the orientation of the plot
             if self.data_variable == "x":
                 plot_args = vals, stat
@@ -1276,6 +1287,11 @@ class _DistributionPlotter(VectorPlotter):
         """Draw a rugplot along one axis of the plot."""
         vector = sub_data[var]
         n = len(vector)
+
+        # Return data to linear domain
+        # This needs an automatic solution; see GH2409
+        if self._log_scaled(var):
+            vector = np.power(10, vector)
 
         # We'll always add a single collection with varying colors
         if "hue" in self.variables:

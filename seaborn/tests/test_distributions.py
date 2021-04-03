@@ -295,6 +295,20 @@ class TestRugPlot(SharedAxesLevelTests):
         assert ax.get_xlabel() == flat_series.name
         assert not ax.get_ylabel()
 
+    def test_log_scale(self, long_df):
+
+        ax1, ax2 = plt.figure().subplots(2)
+
+        ax2.set_xscale("log")
+
+        rugplot(data=long_df, x="z", ax=ax1)
+        rugplot(data=long_df, x="z", ax=ax2)
+
+        rug1 = np.stack(ax1.collections[0].get_segments())
+        rug2 = np.stack(ax2.collections[0].get_segments())
+
+        assert_array_almost_equal(rug1, rug2)
+
 
 class TestKDEPlotUnivariate(SharedAxesLevelTests):
 
@@ -926,7 +940,7 @@ class TestKDEPlotBivariate:
         for c1, c2 in zip(ax1.collections, ax2.collections):
             assert_array_equal(c1.get_segments(), c2.get_segments())
 
-    def test_bandwiddth(self, rng):
+    def test_bandwidth(self, rng):
 
         n = 100
         x, y = rng.multivariate_normal([0, 0], [(.2, .5), (.5, 2)], n).T
@@ -1661,6 +1675,18 @@ class TestHistPlotUnivariate(SharedAxesLevelTests):
         histplot(flat_series, **kws, bins=30, ax=ax2)
         assert get_lw(ax1) > get_lw(ax2)
 
+        f, ax1 = plt.subplots(figsize=(4, 5))
+        f, ax2 = plt.subplots(figsize=(4, 5))
+        histplot(flat_series, **kws, bins=30, ax=ax1)
+        histplot(10 ** flat_series, **kws, bins=30, log_scale=True, ax=ax2)
+        assert get_lw(ax1) == pytest.approx(get_lw(ax2))
+
+        f, ax1 = plt.subplots(figsize=(4, 5))
+        f, ax2 = plt.subplots(figsize=(4, 5))
+        histplot(y=[0, 1, 1], **kws, discrete=True, ax=ax1)
+        histplot(y=["a", "b", "b"], **kws, ax=ax2)
+        assert get_lw(ax1) == pytest.approx(get_lw(ax2))
+
     def test_bar_kwargs(self, flat_series):
 
         lw = 2
@@ -2055,6 +2081,19 @@ class TestECDFPlotUnivariate(SharedAxesLevelTests):
 
         with pytest.raises(NotImplementedError, match="Bivariate ECDF plots"):
             ecdfplot(data=long_df, x="x", y="y")
+
+    def test_log_scale(self, long_df):
+
+        ax1, ax2 = plt.figure().subplots(2)
+
+        ecdfplot(data=long_df, x="z", ax=ax1)
+        ecdfplot(data=long_df, x="z", log_scale=True, ax=ax2)
+
+        # Ignore first point, which either -inf (in linear) or 0 (in log)
+        line1 = ax1.lines[0].get_xydata()[1:]
+        line2 = ax2.lines[0].get_xydata()[1:]
+
+        assert_array_almost_equal(line1, line2)
 
 
 class TestDisPlot:
