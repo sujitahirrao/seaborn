@@ -298,6 +298,7 @@ class _DistributionPlotter(VectorPlotter):
         common_grid,
         estimate_kws,
         log_scale,
+        warn_singular=True,
     ):
 
         # Initialize the estimator object
@@ -321,8 +322,12 @@ class _DistributionPlotter(VectorPlotter):
 
             observation_variance = observations.var()
             if math.isclose(observation_variance, 0) or np.isnan(observation_variance):
-                msg = "Dataset has 0 variance; skipping density estimate."
-                warnings.warn(msg, UserWarning)
+                msg = (
+                    "Dataset has 0 variance; skipping density estimate. "
+                    "Pass `warn_singular=False` to disable this warning."
+                )
+                if warn_singular:
+                    warnings.warn(msg, UserWarning)
                 continue
 
             # Extract the weights for this subset of observations
@@ -410,7 +415,7 @@ class _DistributionPlotter(VectorPlotter):
 
             if common_bins:
                 all_observations = all_data[self.data_variable]
-                estimator.define_bin_edges(
+                estimator.define_bin_params(
                     all_observations,
                     weights=all_data.get("weights", None),
                 )
@@ -430,6 +435,7 @@ class _DistributionPlotter(VectorPlotter):
                 common_bins,
                 kde_kws,
                 log_scale,
+                warn_singular=False,
             )
 
         # First pass through the data to compute the histograms
@@ -634,6 +640,18 @@ class _DistributionPlotter(VectorPlotter):
 
             # Now we handle linewidth, which depends on the scaling of the plot
 
+            # We will base everything on the minimum bin width
+            hist_metadata = pd.concat([
+                # Use .items for generality over dict or df
+                h.index.to_frame() for _, h in histograms.items()
+            ]).reset_index(drop=True)
+            thin_bar_idx = hist_metadata["widths"].idxmin()
+            binwidth = hist_metadata.loc[thin_bar_idx, "widths"]
+            left_edge = hist_metadata.loc[thin_bar_idx, "edges"]
+
+            # Set initial value
+            default_linewidth = math.inf
+
             # Loop through subsets based only on facet variables
             for sub_vars, _ in self.iter_data():
 
@@ -642,15 +660,6 @@ class _DistributionPlotter(VectorPlotter):
                 # Needed in some cases to get valid transforms.
                 # Innocuous in other cases?
                 ax.autoscale_view()
-
-                # We will base everything on the minimum bin width
-                hist_metadata = pd.concat([
-                    # Use .items for generality over dict or df
-                    h.index.to_frame() for _, h in histograms.items()
-                ]).reset_index(drop=True)
-                thin_bar_idx = hist_metadata["widths"].idxmin()
-                binwidth = hist_metadata.loc[thin_bar_idx, "widths"]
-                left_edge = hist_metadata.loc[thin_bar_idx, "edges"]
 
                 # Convert binwidth from data coordinates to pixels
                 pts_x, pts_y = 72 / ax.figure.dpi * abs(
@@ -664,24 +673,24 @@ class _DistributionPlotter(VectorPlotter):
 
                 # The relative size of the lines depends on the appearance
                 # This is a provisional value and may need more tweaking
-                default_linewidth = .1 * binwidth_points
+                default_linewidth = min(.1 * binwidth_points, default_linewidth)
 
-                # Set the attributes
-                for bar in hist_artists:
+            # Set the attributes
+            for bar in hist_artists:
 
-                    # Don't let the lines get too thick
-                    max_linewidth = bar.get_linewidth()
-                    if not fill:
-                        max_linewidth *= 1.5
+                # Don't let the lines get too thick
+                max_linewidth = bar.get_linewidth()
+                if not fill:
+                    max_linewidth *= 1.5
 
-                    linewidth = min(default_linewidth, max_linewidth)
+                linewidth = min(default_linewidth, max_linewidth)
 
-                    # If not filling, don't let lines dissapear
-                    if not fill:
-                        min_linewidth = .5
-                        linewidth = max(linewidth, min_linewidth)
+                # If not filling, don't let lines dissapear
+                if not fill:
+                    min_linewidth = .5
+                    linewidth = max(linewidth, min_linewidth)
 
-                    bar.set_linewidth(linewidth)
+                bar.set_linewidth(linewidth)
 
         # --- Finalize the plot ----
 
@@ -727,7 +736,7 @@ class _DistributionPlotter(VectorPlotter):
         if set(self.variables) - {"x", "y"}:
             all_data = self.comp_data.dropna()
             if common_bins:
-                estimator.define_bin_edges(
+                estimator.define_bin_params(
                     all_data["x"],
                     all_data["y"],
                     all_data.get("weights", None),
@@ -869,6 +878,7 @@ class _DistributionPlotter(VectorPlotter):
         multiple,
         common_norm,
         common_grid,
+        warn_singular,
         fill,
         color,
         legend,
@@ -905,6 +915,7 @@ class _DistributionPlotter(VectorPlotter):
             common_grid,
             estimate_kws,
             log_scale,
+            warn_singular,
         )
 
         # Adjust densities based on the `multiple` rule
@@ -1006,6 +1017,7 @@ class _DistributionPlotter(VectorPlotter):
         color,
         legend,
         cbar,
+        warn_singular,
         cbar_ax,
         cbar_kws,
         estimate_kws,
@@ -1038,8 +1050,12 @@ class _DistributionPlotter(VectorPlotter):
             # Check that KDE will not error out
             variance = observations[["x", "y"]].var()
             if any(math.isclose(x, 0) for x in variance) or variance.isna().any():
-                msg = "Dataset has 0 variance; skipping density estimate."
-                warnings.warn(msg, UserWarning)
+                msg = (
+                    "Dataset has 0 variance; skipping density estimate. "
+                    "Pass `warn_singular=False` to disable this warning."
+                )
+                if warn_singular:
+                    warnings.warn(msg, UserWarning)
                 continue
 
             # Estimate the density of observations at this level
@@ -1581,6 +1597,9 @@ def kdeplot(
     # Renamed params
     data=None, data2=None,
 
+    # New in v0.12
+    warn_singular=True,
+
     **kwargs,
 ):
 
@@ -1702,6 +1721,7 @@ def kdeplot(
             fill=fill,
             color=color,
             legend=legend,
+            warn_singular=warn_singular,
             estimate_kws=estimate_kws,
             **plot_kws,
         )
@@ -1715,6 +1735,7 @@ def kdeplot(
             thresh=thresh,
             legend=legend,
             color=color,
+            warn_singular=warn_singular,
             cbar=cbar,
             cbar_ax=cbar_ax,
             cbar_kws=cbar_kws,
@@ -1810,6 +1831,9 @@ fill : bool or None
     If True, fill in the area under univariate density curves or between
     bivariate contours. If None, the default depends on ``multiple``.
 {params.core.data}
+warn_singular : bool
+    If True, issue a warning when trying to estimate the density of data
+    with zero variance.
 kwargs
     Other keyword arguments are passed to one of the following matplotlib
     functions:

@@ -334,6 +334,7 @@ class _HeatMapper:
         ax.set(xticks=xticks, yticks=yticks)
         xtl = ax.set_xticklabels(xticklabels)
         ytl = ax.set_yticklabels(yticklabels, rotation="vertical")
+        plt.setp(ytl, va="center")  # GH2484
 
         # Possibly rotate them if they overlap
         _draw_figure(ax.figure)
@@ -972,9 +973,6 @@ class ClusterGrid(Grid):
         axis : int
             Which axis to normalize across. If 0, normalize across rows, if 1,
             normalize across columns.
-        vmin : int
-            If 0, then subtract the minimum of the data before dividing by
-            the range.
 
         Returns
         -------
